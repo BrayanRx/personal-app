@@ -16,10 +16,32 @@ android {
         versionName = "0.2.0"
     }
 
+    // Firma de release: la clave vive en los secrets de GitHub, nunca en el repo.
+    // CI decodifica el keystore y pasa estas variables de entorno.
+    val releaseKeystore = System.getenv("AURA_KEYSTORE_PATH")
+    signingConfigs {
+        if (releaseKeystore != null) {
+            create("release") {
+                storeFile = file(releaseKeystore)
+                storePassword = System.getenv("AURA_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("AURA_KEY_ALIAS")
+                keyPassword = System.getenv("AURA_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
+            signingConfig = signingConfigs.findByName("release")
+            resValue("string", "app_name", "Aura")
+        }
+        debug {
+            // Las builds de prueba se instalan aparte y no chocan con la versión publicada.
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
+            resValue("string", "app_name", "Aura Dev")
         }
     }
     compileOptions {
@@ -31,6 +53,7 @@ android {
     }
     buildFeatures {
         compose = true
+        resValues = true
     }
 }
 

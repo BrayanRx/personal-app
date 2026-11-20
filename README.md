@@ -2,6 +2,13 @@
 
 App Android que muestra cada día un **fondo de pantalla** y una **frase motivadora**, con la hora en una tipografía fina y elegante (Jost ExtraLight, estilo "S I L E N C E").
 
+## Descargar
+
+**[⬇ Descargar Aura (última versión)](https://github.com/BrayanRx/personal-app/releases/latest/download/Aura.apk)** · [Todas las versiones](https://github.com/BrayanRx/personal-app/releases)
+
+Android 8.0 o superior. Al abrir el APK, permite "Instalar apps desconocidas" para tu navegador.
+Las versiones están firmadas siempre con la misma clave, así que cada nueva se instala encima sin perder tus fotos, frases ni agenda.
+
 ## MVP actual
 - **Fondo animado** (live wallpaper): hora en vivo, fecha, frase del día. Funciona en inicio y bloqueo (según el fabricante).
 - **Modo estático solo para bloqueo**: genera la imagen (fondo + frase) y la fija con `WallpaperManager.FLAG_LOCK`; opcionalmente se regenera cada medianoche (WorkManager).
@@ -36,8 +43,14 @@ Las frases con `date` se muestran exactamente ese día; el resto rota.
 
 ## Compilar
 - Android Studio: abrir la carpeta y ejecutar `app`.
-- CLI: `./gradlew assembleDebug` → `app/build/outputs/apk/debug/app-debug.apk`.
-- CI: cada push compila el APK en GitHub Actions (artefacto `aura-debug-apk`).
+- CLI: `./gradlew assembleDebug` → `app/build/outputs/apk/debug/app-debug.apk` (se instala como "Aura Dev", aparte de la versión publicada).
+- CI: cada push ejecuta tests y compila el APK de prueba (artefacto `aura-debug-apk`).
+
+## Publicar una versión
+1. Sube `versionCode` y `versionName` en `app/build.gradle.kts`.
+2. Fusiona a `main`. CI compila el APK firmado y crea el Release `vX.Y.Z` automáticamente.
+
+La firma usa los secrets `AURA_KEYSTORE_BASE64`, `AURA_KEYSTORE_PASSWORD`, `AURA_KEY_ALIAS` y `AURA_KEY_PASSWORD`. Si faltan, el Release se omite con un aviso.
 
 ## Limitaciones conocidas (Android, no de la app)
 - Ninguna app puede ocultar el reloj del sistema en la pantalla de bloqueo. Si se ven dos relojes, desactiva "Mostrar hora".
