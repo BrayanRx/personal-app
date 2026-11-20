@@ -11,7 +11,7 @@ class Settings(context: Context) {
         context.applicationContext.getSharedPreferences("aura", Context.MODE_PRIVATE)
 
     var showClock: Boolean
-        get() = prefs.getBoolean(KEY_SHOW_CLOCK, true)
+        get() = prefs.getBoolean(KEY_SHOW_CLOCK, false)
         set(v) = prefs.edit().putBoolean(KEY_SHOW_CLOCK, v).apply()
 
     var use24h: Boolean
@@ -21,6 +21,10 @@ class Settings(context: Context) {
     var style: Style
         get() = runCatching { Style.valueOf(prefs.getString(KEY_STYLE, null)!!) }.getOrDefault(Style.MINIMAL)
         set(v) = prefs.edit().putString(KEY_STYLE, v.name).apply()
+
+    var showAgenda: Boolean
+        get() = prefs.getBoolean(KEY_SHOW_AGENDA, true)
+        set(v) = prefs.edit().putBoolean(KEY_SHOW_AGENDA, v).apply()
 
     /** Actualizar automáticamente el fondo estático de bloqueo cada medianoche. */
     var lockAutoUpdate: Boolean
@@ -36,6 +40,7 @@ class Settings(context: Context) {
         const val KEY_SHOW_CLOCK = "show_clock"
         const val KEY_24H = "use_24h"
         const val KEY_STYLE = "style"
+        const val KEY_SHOW_AGENDA = "show_agenda"
         const val KEY_LOCK_AUTO = "lock_auto"
         const val KEY_DATA_VERSION = "data_version"
     }

@@ -22,6 +22,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -80,13 +81,15 @@ import pe.aura.wallpaper.render.WallpaperRenderer
 import pe.aura.wallpaper.wallpaper.AuraWallpaperService
 import pe.aura.wallpaper.work.LockScreen
 import java.time.LocalDateTime
+import java.util.Locale
 
-private val Jost = FontFamily(
+internal val Jost = FontFamily(
     Font(R.font.jost_extralight, FontWeight.ExtraLight),
     Font(R.font.jost_light, FontWeight.Light),
     Font(R.font.jost_regular, FontWeight.Normal),
 )
-private val Accent = Color(0xFFF2A06B)
+internal val Accent = Color(0xFFF2A06B)
+internal val ES: Locale = Locale.forLanguageTag("es-PE")
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -100,20 +103,63 @@ class MainActivity : ComponentActivity() {
                     background = Color(0xFF0E0F12),
                     surface = Color(0xFF16171C),
                 ),
-            ) { AuraScreen() }
+            ) { AuraApp() }
         }
     }
 }
 
 @Composable
-private fun AuraScreen() {
+private fun AuraApp() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val settings = remember { Settings(context) }
+    var version by remember { mutableIntStateOf(0) }
+    var tab by remember { mutableIntStateOf(0) }
+
+    // Cualquier cambio de datos: redibuja el fondo animado y, si está activo, regenera el bloqueo estático.
+    fun dataChanged() {
+        settings.bumpDataVersion()
+        version++
+        if (settings.lockAutoUpdate) scope.launch(Dispatchers.Default) { runCatching { LockScreen.apply(context) } }
+    }
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .systemBarsPadding()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 20.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Text(
+            "A U R A",
+            style = TextStyle(fontFamily = Jost, fontWeight = FontWeight.Light, fontSize = 26.sp, letterSpacing = 6.sp),
+            color = Color.White,
+        )
+        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+            listOf("Fondo", "Agenda").forEachIndexed { i, label ->
+                SegmentedButton(
+                    selected = tab == i,
+                    onClick = { tab = i },
+                    shape = SegmentedButtonDefaults.itemShape(i, 2),
+                ) { Text(label, style = body()) }
+            }
+        }
+        when (tab) {
+            0 -> FondoScreen(settings, version, ::dataChanged)
+            else -> AgendaScreen(version, ::dataChanged)
+        }
+        Spacer(Modifier.height(24.dp))
+    }
+}
+
+@Composable
+private fun ColumnScope.FondoScreen(settings: Settings, version: Int, dataChanged: () -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val images = remember { ImageRepository(context) }
     val quotes = remember { QuoteRepository(context) }
-
-    var version by remember { mutableIntStateOf(0) }
     var preview by remember { mutableStateOf<Bitmap?>(null) }
     var imageCount by remember { mutableIntStateOf(0) }
     var quoteCount by remember { mutableIntStateOf(0) }
@@ -123,13 +169,9 @@ private fun AuraScreen() {
     var use24h by remember { mutableStateOf(settings.use24h) }
     var style by remember { mutableStateOf(settings.style) }
     var lockAuto by remember { mutableStateOf(settings.lockAutoUpdate) }
+    var showAgenda by remember { mutableStateOf(settings.showAgenda) }
 
-    fun dataChanged() {
-        settings.bumpDataVersion()
-        version++
-    }
-
-    LaunchedEffect(version, showClock, use24h, style) {
+    LaunchedEffect(version, showClock, use24h, style, showAgenda) {
         val bmp = withContext(Dispatchers.Default) {
             imageCount = images.all().size
             quoteCount = quotes.all().size
@@ -137,7 +179,7 @@ private fun AuraScreen() {
             val (w, h) = LockScreen.screenSize(context)
             WallpaperRenderer(context).render(
                 w / 2, h / 2, DailySelector.forDate(context), LocalDateTime.now(),
-                RenderOptions(showClock, use24h, style),
+                RenderOptions(showClock, use24h, style, showAgenda),
             )
         }
         preview = bmp
@@ -170,21 +212,7 @@ private fun AuraScreen() {
         if (text == null) toast(context, "No se pudo leer el archivo") else importQuotes(text)
     }
 
-    Column(
-        Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .systemBarsPadding()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        Text(
-            "A U R A",
-            style = TextStyle(fontFamily = Jost, fontWeight = FontWeight.Light, fontSize = 26.sp, letterSpacing = 6.sp),
-            color = Color.White,
-        )
-        Text("Tu fondo y frase del día", style = body(), color = Color.White.copy(alpha = 0.6f))
+    run {
 
         // Vista previa
         Box(
@@ -276,15 +304,15 @@ private fun AuraScreen() {
                 }
             }
             ToggleRow("Mostrar hora en el fondo", showClock) { showClock = it; settings.showClock = it }
+            ToggleRow("Mostrar agenda de hoy", showAgenda) { showAgenda = it; settings.showAgenda = it }
             ToggleRow("Formato 24 horas", use24h) { use24h = it; settings.use24h = it }
             Hint("Si en tu bloqueo ves dos relojes, desactiva \"Mostrar hora\" (el del sistema no se puede ocultar desde una app).")
         }
-        Spacer(Modifier.height(24.dp))
     }
 }
 
 @Composable
-private fun Section(title: String, content: @Composable () -> Unit) {
+internal fun Section(title: String, content: @Composable () -> Unit) {
     Column(
         Modifier
             .fillMaxWidth()
@@ -312,12 +340,12 @@ private fun ToggleRow(label: String, checked: Boolean, onChange: (Boolean) -> Un
 }
 
 @Composable
-private fun Hint(text: String) =
+internal fun Hint(text: String) =
     Text(text, style = body().copy(fontSize = 13.sp), color = Color.White.copy(alpha = 0.45f))
 
-private fun body() = TextStyle(fontFamily = Jost, fontWeight = FontWeight.Light, fontSize = 15.sp)
+internal fun body() = TextStyle(fontFamily = Jost, fontWeight = FontWeight.Light, fontSize = 15.sp)
 
-private fun toast(context: Context, msg: String) = Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+internal fun toast(context: Context, msg: String) = Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
 
 private fun setLiveWallpaper(context: Context) {
     val intent = Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER).putExtra(

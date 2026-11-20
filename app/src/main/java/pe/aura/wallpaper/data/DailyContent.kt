@@ -4,7 +4,11 @@ import android.content.Context
 import java.io.File
 import java.time.LocalDate
 
-data class DailyContent(val image: File?, val quote: Quote?)
+data class DailyContent(
+    val image: File?,
+    val quote: Quote?,
+    val activities: List<Activity> = emptyList(),
+)
 
 /**
  * Selección determinista por día: no necesita tareas en segundo plano para rotar,
@@ -23,6 +27,6 @@ object DailySelector {
         val image = images.takeIf { it.isNotEmpty() }
             ?.let { it[Math.floorMod(day, it.size.toLong()).toInt()] }
 
-        return DailyContent(image, quote)
+        return DailyContent(image, quote, ActivityRepository(context).forDate(date))
     }
 }
