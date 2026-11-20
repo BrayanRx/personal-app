@@ -31,6 +31,53 @@ class Settings(context: Context) {
         get() = prefs.getBoolean(KEY_LOCK_AUTO, false)
         set(v) = prefs.edit().putBoolean(KEY_LOCK_AUTO, v).apply()
 
+    // ---------- Sincronización con la bóveda de Obsidian ----------
+
+    var syncTreeUri: String?
+        get() = prefs.getString(KEY_SYNC_TREE, null)
+        set(v) = prefs.edit().putString(KEY_SYNC_TREE, v).apply()
+
+    var syncAgendaSig: String?
+        get() = prefs.getString(KEY_SYNC_AGENDA_SIG, null)
+        set(v) = prefs.edit().putString(KEY_SYNC_AGENDA_SIG, v).apply()
+
+    var syncQuotesSig: String?
+        get() = prefs.getString(KEY_SYNC_QUOTES_SIG, null)
+        set(v) = prefs.edit().putString(KEY_SYNC_QUOTES_SIG, v).apply()
+
+    /** Momento del último intento (para limitar la frecuencia desde el fondo animado). */
+    var syncLastAttempt: Long
+        get() = prefs.getLong(KEY_SYNC_LAST_ATTEMPT, 0)
+        set(v) = prefs.edit().putLong(KEY_SYNC_LAST_ATTEMPT, v).apply()
+
+    fun saveSyncStatus(time: Long, activities: Int?, quotes: Int?, error: String?) {
+        prefs.edit().apply {
+            putLong(KEY_SYNC_LAST_TIME, time)
+            activities?.let { putInt(KEY_SYNC_ACTIVITY_COUNT, it) }
+            quotes?.let { putInt(KEY_SYNC_QUOTE_COUNT, it) }
+            if (error == null) remove(KEY_SYNC_ERROR) else putString(KEY_SYNC_ERROR, error)
+        }.apply()
+    }
+
+    val syncLastTime: Long get() = prefs.getLong(KEY_SYNC_LAST_TIME, 0)
+    val syncActivityCount: Int get() = prefs.getInt(KEY_SYNC_ACTIVITY_COUNT, -1)
+    val syncQuoteCount: Int get() = prefs.getInt(KEY_SYNC_QUOTE_COUNT, -1)
+    val syncError: String? get() = prefs.getString(KEY_SYNC_ERROR, null)
+
+    /** Fuerza que la próxima sincronización vuelva a leer las notas aunque no hayan cambiado. */
+    fun resetSyncSignatures() {
+        prefs.edit().remove(KEY_SYNC_AGENDA_SIG).remove(KEY_SYNC_QUOTES_SIG).apply()
+    }
+
+    fun clearSync() {
+        prefs.edit().apply {
+            listOf(
+                KEY_SYNC_TREE, KEY_SYNC_AGENDA_SIG, KEY_SYNC_QUOTES_SIG, KEY_SYNC_LAST_ATTEMPT,
+                KEY_SYNC_LAST_TIME, KEY_SYNC_ACTIVITY_COUNT, KEY_SYNC_QUOTE_COUNT, KEY_SYNC_ERROR,
+            ).forEach { remove(it) }
+        }.apply()
+    }
+
     /** Se incrementa tras importar/borrar datos para que el fondo animado se redibuje. */
     fun bumpDataVersion() {
         prefs.edit().putLong(KEY_DATA_VERSION, prefs.getLong(KEY_DATA_VERSION, 0) + 1).apply()
@@ -43,5 +90,16 @@ class Settings(context: Context) {
         const val KEY_SHOW_AGENDA = "show_agenda"
         const val KEY_LOCK_AUTO = "lock_auto"
         const val KEY_DATA_VERSION = "data_version"
+
+        /** Todas las claves de sincronización empiezan así; el fondo animado las ignora. */
+        const val SYNC_PREFIX = "sync_"
+        const val KEY_SYNC_TREE = "sync_tree_uri"
+        const val KEY_SYNC_AGENDA_SIG = "sync_agenda_sig"
+        const val KEY_SYNC_QUOTES_SIG = "sync_quotes_sig"
+        const val KEY_SYNC_LAST_ATTEMPT = "sync_last_attempt"
+        const val KEY_SYNC_LAST_TIME = "sync_last_time"
+        const val KEY_SYNC_ACTIVITY_COUNT = "sync_activity_count"
+        const val KEY_SYNC_QUOTE_COUNT = "sync_quote_count"
+        const val KEY_SYNC_ERROR = "sync_error"
     }
 }

@@ -14,6 +14,7 @@ import pe.aura.wallpaper.data.DailySelector
 import pe.aura.wallpaper.data.Settings
 import pe.aura.wallpaper.render.RenderOptions
 import pe.aura.wallpaper.render.WallpaperRenderer
+import pe.aura.wallpaper.sync.VaultSync
 import java.time.Duration
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -28,6 +29,8 @@ object LockScreen {
     private const val WORK_NAME = "aura-lock-daily"
 
     fun apply(context: Context) {
+        // Trae la agenda/frases más recientes de la bóveda antes de generar la imagen.
+        VaultSync.sync(context)
         val (w, h) = screenSize(context)
         val settings = Settings(context)
         val bmp = WallpaperRenderer(context).render(

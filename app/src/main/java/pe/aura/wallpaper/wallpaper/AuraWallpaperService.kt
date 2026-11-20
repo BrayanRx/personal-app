@@ -16,6 +16,7 @@ import pe.aura.wallpaper.data.DailySelector
 import pe.aura.wallpaper.data.Settings
 import pe.aura.wallpaper.render.RenderOptions
 import pe.aura.wallpaper.render.WallpaperRenderer
+import pe.aura.wallpaper.sync.VaultSync
 import java.time.LocalDate
 import java.time.LocalDateTime
 
@@ -31,6 +32,10 @@ class AuraWallpaperService : WallpaperService() {
 
         private val thread = HandlerThread("aura-render").apply { start() }
         private val handler = Handler(thread.looper)
+
+        // Hilo aparte para la sincronización: leer la bóveda nunca bloquea el dibujo.
+        private val syncThread = HandlerThread("aura-sync").apply { start() }
+        private val syncHandler = Handler(syncThread.looper)
         private val settings = Settings(this@AuraWallpaperService)
         private val renderer = WallpaperRenderer(this@AuraWallpaperService)
 
@@ -55,6 +60,7 @@ class AuraWallpaperService : WallpaperService() {
             settings.prefs.unregisterOnSharedPreferenceChangeListener(this)
             unregisterTimeReceiver()
             thread.quitSafely()
+            syncThread.quitSafely()
             super.onDestroy()
         }
 
@@ -63,6 +69,10 @@ class AuraWallpaperService : WallpaperService() {
             if (visible) {
                 registerTimeReceiver()
                 requestDraw()
+                // Si cambió la nota, VaultSync sube data_version y el listener redibuja.
+                syncHandler.post {
+                    VaultSync.sync(this@AuraWallpaperService, minIntervalMs = VaultSync.WALLPAPER_MIN_INTERVAL_MS)
+                }
             } else {
                 unregisterTimeReceiver()
             }
@@ -82,6 +92,8 @@ class AuraWallpaperService : WallpaperService() {
         }
 
         override fun onSharedPreferenceChanged(prefs: SharedPreferences?, key: String?) {
+            // El estado de sincronización (hora, errores) no afecta al dibujo.
+            if (key?.startsWith(Settings.SYNC_PREFIX) == true) return
             dirty = true
             requestDraw(force = true)
         }

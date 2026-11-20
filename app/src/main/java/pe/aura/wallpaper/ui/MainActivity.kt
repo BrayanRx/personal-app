@@ -7,6 +7,7 @@ import android.content.ClipboardManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.graphics.Bitmap
 import android.os.Bundle
 import android.widget.Toast
@@ -47,6 +48,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -67,6 +69,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -78,6 +81,7 @@ import pe.aura.wallpaper.data.Settings
 import pe.aura.wallpaper.data.Style
 import pe.aura.wallpaper.render.RenderOptions
 import pe.aura.wallpaper.render.WallpaperRenderer
+import pe.aura.wallpaper.sync.VaultSync
 import pe.aura.wallpaper.wallpaper.AuraWallpaperService
 import pe.aura.wallpaper.work.LockScreen
 import java.time.LocalDateTime
@@ -106,6 +110,15 @@ class MainActivity : ComponentActivity() {
             ) { AuraApp() }
         }
     }
+
+    override fun onResume() {
+        super.onResume()
+        // Al abrir/volver a la app: traer cambios de la bóveda (si la nota cambió).
+        lifecycleScope.launch(Dispatchers.IO) {
+            val changed = VaultSync.sync(this@MainActivity)
+            if (changed && Settings(this@MainActivity).lockAutoUpdate) runCatching { LockScreen.apply(this@MainActivity) }
+        }
+    }
 }
 
 @Composable
@@ -114,12 +127,24 @@ private fun AuraApp() {
     val scope = rememberCoroutineScope()
     val settings = remember { Settings(context) }
     var version by remember { mutableIntStateOf(0) }
+    var syncVersion by remember { mutableIntStateOf(0) }
     var tab by remember { mutableIntStateOf(0) }
+
+    // Cualquier cambio guardado (desde la app, la sincronización o el fondo) refresca la UI.
+    DisposableEffect(settings) {
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            when {
+                key == Settings.KEY_DATA_VERSION -> version++
+                key?.startsWith(Settings.SYNC_PREFIX) == true -> syncVersion++
+            }
+        }
+        settings.prefs.registerOnSharedPreferenceChangeListener(listener)
+        onDispose { settings.prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
 
     // Cualquier cambio de datos: redibuja el fondo animado y, si está activo, regenera el bloqueo estático.
     fun dataChanged() {
         settings.bumpDataVersion()
-        version++
         if (settings.lockAutoUpdate) scope.launch(Dispatchers.Default) { runCatching { LockScreen.apply(context) } }
     }
 
@@ -147,7 +172,7 @@ private fun AuraApp() {
             }
         }
         when (tab) {
-            0 -> FondoScreen(settings, version, ::dataChanged)
+            0 -> FondoScreen(settings, version, syncVersion, ::dataChanged)
             else -> AgendaScreen(version, ::dataChanged)
         }
         Spacer(Modifier.height(24.dp))
@@ -155,7 +180,7 @@ private fun AuraApp() {
 }
 
 @Composable
-private fun ColumnScope.FondoScreen(settings: Settings, version: Int, dataChanged: () -> Unit) {
+private fun ColumnScope.FondoScreen(settings: Settings, version: Int, syncVersion: Int, dataChanged: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val images = remember { ImageRepository(context) }
@@ -251,6 +276,8 @@ private fun ColumnScope.FondoScreen(settings: Settings, version: Int, dataChange
             }
             Hint("El modo estático no dibuja reloj: tu teléfono ya muestra el suyo en el bloqueo.")
         }
+
+        SyncSection(settings, syncVersion)
 
         Section("Fondos · $imageCount") {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {

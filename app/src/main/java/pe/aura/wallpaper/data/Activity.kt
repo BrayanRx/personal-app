@@ -4,6 +4,7 @@ import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.security.MessageDigest
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalTime
@@ -28,6 +29,15 @@ enum class Category(val label: String, val color: Int) {
     }
 }
 
+/** De dónde viene una actividad: la nota de Obsidian (se reemplaza al sincronizar) o la app. */
+enum class Source {
+    MANUAL, VAULT;
+
+    companion object {
+        fun parse(raw: String?): Source = if (raw.equals("vault", ignoreCase = true)) VAULT else MANUAL
+    }
+}
+
 /**
  * Una actividad es:
  *  - de un día específico (date != null), o
@@ -41,6 +51,7 @@ data class Activity(
     val time: LocalTime? = null,
     val days: Set<DayOfWeek> = emptySet(),
     val date: LocalDate? = null,
+    val source: Source = Source.MANUAL,
 ) {
     fun occursOn(d: LocalDate): Boolean = when {
         date != null -> date == d
@@ -49,9 +60,15 @@ data class Activity(
     }
 }
 
-class ActivityRepository(private val context: Context) {
+/**
+ * Guarda la agenda en `<dir>/activities.json`.
+ * Recibe el directorio (no un Context) para poder probarlo en la JVM.
+ */
+class ActivityRepository(private val dir: File) {
 
-    private val file get() = File(context.filesDir, "activities.json")
+    constructor(context: Context) : this(context.filesDir)
+
+    private val file get() = File(dir, "activities.json")
 
     fun all(): List<Activity> =
         if (file.exists()) runCatching { parse(file.readText()) }.getOrDefault(emptyList()) else emptyList()
@@ -71,22 +88,70 @@ class ActivityRepository(private val context: Context) {
         file.delete()
     }
 
-    /** Añade las actividades del JSON a las existentes. Devuelve cuántas se añadieron. */
+    /**
+     * Import manual (archivo o "Pegar JSON"): fusiona deduplicando por ID estable, así
+     * importar dos veces lo mismo no duplica. Devuelve cuántas actividades eran nuevas.
+     * Lanza excepción (sin tocar el archivo) si el JSON es inválido o está vacío.
+     */
     fun import(json: String): Int {
-        val incoming = parse(json)
+        val incoming = parse(json).map { it.copy(source = Source.MANUAL) }
         require(incoming.isNotEmpty()) { "El JSON no contiene actividades" }
-        save(all() + incoming)
-        return incoming.size
+        val existing = all()
+        val known = existing.map { it.id }.toSet()
+        save(mergeById(existing, incoming))
+        return incoming.map { it.id }.distinct().count { it !in known }
+    }
+
+    /**
+     * Sincronización desde la nota: reemplaza todas las actividades VAULT y conserva las MANUAL.
+     * Lanza excepción (sin tocar el archivo) si el JSON es inválido. Devuelve cuántas se leyeron.
+     */
+    fun replaceVault(json: String): Int {
+        val vault = parse(json).map { it.copy(source = Source.VAULT) }.distinctBy { it.id }
+        save(replaceVault(all(), vault))
+        return vault.size
     }
 
     private fun save(list: List<Activity>) {
-        file.writeText(toJson(list))
+        dir.mkdirs()
+        // Escritura atómica: un fallo a mitad no deja el archivo corrupto.
+        val tmp = File(dir, "activities.json.tmp")
+        tmp.writeText(toJson(list))
+        if (!tmp.renameTo(file)) {
+            file.writeText(tmp.readText()); tmp.delete()
+        }
     }
 
     companion object {
         fun forDate(all: List<Activity>, date: LocalDate): List<Activity> =
             all.filter { it.occursOn(date) }
                 .sortedWith(compareBy<Activity, LocalTime?>(nullsFirst<LocalTime>()) { it.time }.thenBy { it.title })
+
+        /** Las entrantes sustituyen a las existentes con el mismo ID; el resto se añade al final. */
+        fun mergeById(existing: List<Activity>, incoming: List<Activity>): List<Activity> {
+            val byId = LinkedHashMap<String, Activity>()
+            existing.forEach { byId[it.id] = it }
+            incoming.forEach { byId[it.id] = it }
+            return byId.values.toList()
+        }
+
+        fun replaceVault(existing: List<Activity>, vault: List<Activity>): List<Activity> =
+            existing.filter { it.source == Source.MANUAL } + vault
+
+        /**
+         * ID determinista a partir del contenido: la misma actividad siempre produce el mismo ID,
+         * aunque cambie el orden de "days". Así reimportar no duplica y la UI no parpadea.
+         */
+        fun stableId(title: String, time: LocalTime?, days: Set<DayOfWeek>, date: LocalDate?): String {
+            val key = listOf(
+                title.trim(),
+                time?.toString().orEmpty(),
+                days.sorted().joinToString(",") { DAY_CODES[it.value - 1] },
+                date?.toString().orEmpty(),
+            ).joinToString("|")
+            val digest = MessageDigest.getInstance("SHA-1").digest(key.toByteArray(Charsets.UTF_8))
+            return "a-" + digest.take(8).joinToString("") { "%02x".format(it) }
+        }
 
         fun toJson(list: List<Activity>): String {
             val arr = JSONArray()
@@ -98,6 +163,7 @@ class ActivityRepository(private val context: Context) {
                     a.time?.let { put("time", it.toString()) }
                     if (a.days.isNotEmpty()) put("days", JSONArray(a.days.sorted().map { DAY_CODES[it.value - 1] }))
                     a.date?.let { put("date", it.toString()) }
+                    put("source", a.source.name.lowercase())
                 })
             }
             return JSONObject().put("version", 1).put("activities", arr).toString(2)
@@ -109,9 +175,10 @@ class ActivityRepository(private val context: Context) {
          *                   {"title":"Examen","category":"estudio","time":"10:00","date":"2026-11-25"} ] }
          * Alias: actividades/titulo/categoria/hora/dias/fecha. "days" admite "lun", "lunes", "mon",
          * "monday", números 1-7 (1 = lunes) o "diario"/"todos".
+         * Acepta también una nota Markdown: se usa su bloque ```json.
          */
         fun parse(raw: String): List<Activity> {
-            val cleaned = stripCodeFences(raw).trim()
+            val cleaned = NoteJson.extract(raw).trim()
             val array = when {
                 cleaned.startsWith("[") -> JSONArray(cleaned)
                 cleaned.startsWith("{") -> JSONObject(cleaned).let {
@@ -123,13 +190,17 @@ class ActivityRepository(private val context: Context) {
             return (0 until array.length()).mapNotNull { i ->
                 val o = array.optJSONObject(i) ?: return@mapNotNull null
                 val title = o.str("title", "titulo", "título", "name", "nombre") ?: return@mapNotNull null
+                val time = o.str("time", "hora")?.let { parseTime(it) }
+                val days = parseDays(o.opt("days") ?: o.opt("dias") ?: o.opt("días"))
+                val date = o.str("date", "fecha")?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
                 Activity(
-                    id = o.str("id") ?: UUID.randomUUID().toString(),
+                    id = o.str("id") ?: stableId(title, time, days, date),
                     title = title,
                     category = Category.parse(o.str("category", "categoria", "categoría", "tipo")),
-                    time = o.str("time", "hora")?.let { parseTime(it) },
-                    days = parseDays(o.opt("days") ?: o.opt("dias") ?: o.opt("días")),
-                    date = o.str("date", "fecha")?.let { runCatching { LocalDate.parse(it) }.getOrNull() },
+                    time = time,
+                    days = days,
+                    date = date,
+                    source = Source.parse(o.str("source")),
                 )
             }
         }
@@ -163,13 +234,5 @@ class ActivityRepository(private val context: Context) {
 
         private fun JSONObject.str(vararg keys: String): String? =
             keys.firstNotNullOfOrNull { k -> optString(k, "").trim().takeIf { it.isNotEmpty() } }
-
-        internal fun stripCodeFences(s: String): String {
-            val start = s.indexOf("```")
-            if (start < 0) return s
-            val afterFence = s.indexOf('\n', start).takeIf { it >= 0 } ?: return s
-            val end = s.indexOf("```", afterFence)
-            return if (end > afterFence) s.substring(afterFence + 1, end) else s
-        }
     }
 }

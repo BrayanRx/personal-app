@@ -14,16 +14,20 @@ data class Quote(
 )
 
 /**
- * Guarda las frases en filesDir/quotes.json (formato normalizado).
- * Si el usuario no importó nada, usa assets/quotes_default.json.
+ * Guarda las frases en `<dir>/quotes.json` (formato normalizado).
+ * Si el usuario no importó nada, usa las frases por defecto (assets/quotes_default.json).
  */
-class QuoteRepository(private val context: Context) {
+class QuoteRepository(private val dir: File, private val defaults: () -> String) {
 
-    private val file get() = File(context.filesDir, "quotes.json")
+    constructor(context: Context) : this(
+        context.filesDir,
+        { context.assets.open("quotes_default.json").bufferedReader().use { it.readText() } },
+    )
+
+    private val file get() = File(dir, "quotes.json")
 
     fun all(): List<Quote> {
-        val raw = if (file.exists()) file.readText()
-        else context.assets.open("quotes_default.json").bufferedReader().use { it.readText() }
+        val raw = if (file.exists()) file.readText() else defaults()
         return runCatching { parse(raw) }.getOrDefault(emptyList())
     }
 
@@ -40,6 +44,17 @@ class QuoteRepository(private val context: Context) {
         return added.size
     }
 
+    /**
+     * Sincronización desde la nota: reemplaza todo el banco. Lanza excepción (sin tocar
+     * el archivo) si el JSON es inválido o vacío. Devuelve cuántas frases se leyeron.
+     */
+    fun replaceAll(json: String): Int {
+        val quotes = parse(json).distinctBy { it.text.trim().lowercase() }
+        require(quotes.isNotEmpty()) { "La nota no contiene frases" }
+        save(quotes)
+        return quotes.size
+    }
+
     fun clear() {
         file.delete()
     }
@@ -53,7 +68,12 @@ class QuoteRepository(private val context: Context) {
                 q.date?.let { put("date", it.toString()) }
             })
         }
-        file.writeText(JSONObject().put("version", 1).put("quotes", arr).toString(2))
+        dir.mkdirs()
+        val tmp = File(dir, "quotes.json.tmp")
+        tmp.writeText(JSONObject().put("version", 1).put("quotes", arr).toString(2))
+        if (!tmp.renameTo(file)) {
+            file.writeText(tmp.readText()); tmp.delete()
+        }
     }
 
     companion object {
@@ -66,7 +86,7 @@ class QuoteRepository(private val context: Context) {
          * Tolera bloques ```json ... ``` alrededor.
          */
         fun parse(raw: String): List<Quote> {
-            val cleaned = stripCodeFences(raw).trim()
+            val cleaned = NoteJson.extract(raw).trim()
             val array: JSONArray = when {
                 cleaned.startsWith("[") -> JSONArray(cleaned)
                 cleaned.startsWith("{") -> {
@@ -95,13 +115,5 @@ class QuoteRepository(private val context: Context) {
 
         private fun JSONObject.firstString(vararg keys: String): String? =
             keys.firstNotNullOfOrNull { k -> optString(k, "").trim().takeIf { it.isNotEmpty() } }
-
-        private fun stripCodeFences(s: String): String {
-            val start = s.indexOf("```")
-            if (start < 0) return s
-            val afterFence = s.indexOf('\n', start).takeIf { it >= 0 } ?: return s
-            val end = s.indexOf("```", afterFence)
-            return if (end > afterFence) s.substring(afterFence + 1, end) else s
-        }
     }
 }
