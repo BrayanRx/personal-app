@@ -83,21 +83,21 @@ class WallpaperRenderer(private val context: Context) {
             drawCentered(c, time(now, o.use24h), cx, baseline, clock)
 
             val date = textPaint(light, w * 0.030f, 0.42f, alpha = 215, shadow = true)
-            val dateText = now.format(DateTimeFormatter.ofPattern("EEEE · d MMMM", Locale.getDefault()))
-                .uppercase(Locale.getDefault())
+            val dateText = now.format(DateTimeFormatter.ofPattern("EEEE · d MMMM", ES))
+                .uppercase(ES)
             drawCentered(c, dateText, cx, baseline + w * 0.085f, date)
         }
 
         val quote = content.quote ?: return
         val body = textPaint(light, w * 0.050f, 0.02f, alpha = 240, shadow = true)
         val layout = staticLayout(quote.text, body, (w * 0.76f).toInt(), Layout.Alignment.ALIGN_CENTER)
-        val author = quote.author?.uppercase(Locale.getDefault())
+        val author = quote.author?.uppercase(ES)
         val authorPaint = textPaint(regular, w * 0.026f, 0.38f, alpha = 190, shadow = true)
 
         val dividerGap = w * 0.06f
         val authorGap = w * 0.055f
         val blockH = dividerGap + layout.height + (if (author != null) authorGap + authorPaint.textSize else 0f)
-        var y = h * 0.84f - blockH
+        var y = QUOTE_BOTTOM_MINIMAL * h - blockH
 
         // Línea fina de acento sobre la frase
         val line = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -133,8 +133,8 @@ class WallpaperRenderer(private val context: Context) {
             glassCard(c, card, radius, w, h)
 
             c.drawText(time(now, o.use24h), card.left + p * 0.85f, clockBase, clock)
-            val dateText = now.format(DateTimeFormatter.ofPattern("EEEE, d MMMM", Locale.getDefault()))
-                .replaceFirstChar { it.titlecase(Locale.getDefault()) }
+            val dateText = now.format(DateTimeFormatter.ofPattern("EEEE, d MMMM", ES))
+                .replaceFirstChar { it.titlecase(ES) }
             c.drawText(dateText, card.left + p, dateBase, date)
             val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; alpha = 200; strokeWidth = dp(1.5f) }
             c.drawLine(card.left + p, lineY, card.left + p + w * 0.09f, lineY, line)
@@ -146,12 +146,12 @@ class WallpaperRenderer(private val context: Context) {
         val layout = staticLayout(quote.text, body, (cardW - 2 * p).toInt(), Layout.Alignment.ALIGN_NORMAL)
         val mark = textPaint(regular, w * 0.11f, 0f, alpha = 255).apply { color = accent }
         val authorPaint = textPaint(regular, w * 0.026f, 0.30f, alpha = 185)
-        val author = quote.author?.uppercase(Locale.getDefault())
+        val author = quote.author?.uppercase(ES)
 
         val markH = w * 0.07f
         val authorBlock = if (author != null) w * 0.05f + authorPaint.textSize else 0f
         val cardH = p + markH + layout.height + authorBlock + p
-        val card = RectF(m, h * 0.85f - cardH, m + cardW, h * 0.85f)
+        val card = RectF(m, h * QUOTE_BOTTOM_GLASS - cardH, m + cardW, h * QUOTE_BOTTOM_GLASS)
         glassCard(c, card, radius, w, h)
 
         c.drawText("“", card.left + p - w * 0.008f, card.top + p + markH * 1.15f, mark)
@@ -280,6 +280,18 @@ class WallpaperRenderer(private val context: Context) {
             .setLineSpacing(0f, 1.22f)
             .setIncludePad(false)
             .build()
+
+    companion object {
+        /** Fecha siempre en español, aunque el teléfono esté en otro idioma. */
+        private val ES: Locale = Locale.forLanguageTag("es-PE")
+
+        /**
+         * Borde inferior de la frase (fracción del alto). Deja libre la franja de abajo del
+         * bloqueo: indicador de carga, accesos directos y notificaciones en vivo.
+         */
+        private const val QUOTE_BOTTOM_MINIMAL = 0.73f
+        private const val QUOTE_BOTTOM_GLASS = 0.75f
+    }
 
     private fun dp(v: Float) = v * context.resources.displayMetrics.density
 

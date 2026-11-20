@@ -11,7 +11,7 @@ class Settings(context: Context) {
         context.applicationContext.getSharedPreferences("aura", Context.MODE_PRIVATE)
 
     var showClock: Boolean
-        get() = prefs.getBoolean(KEY_SHOW_CLOCK, true)
+        get() = prefs.getBoolean(KEY_SHOW_CLOCK, false)
         set(v) = prefs.edit().putBoolean(KEY_SHOW_CLOCK, v).apply()
 
     var use24h: Boolean
