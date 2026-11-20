@@ -55,6 +55,8 @@ import kotlinx.coroutines.withContext
 import pe.aura.wallpaper.data.Activity
 import pe.aura.wallpaper.data.ActivityRepository
 import pe.aura.wallpaper.data.Category
+import pe.aura.wallpaper.data.Settings
+import pe.aura.wallpaper.data.Source
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalTime
@@ -133,7 +135,12 @@ fun AgendaScreen(version: Int, onDataChanged: () -> Unit) {
                 toast(context, "Prompt copiado: pégalo en Claude")
             }) { Text("Copiar prompt para Claude", style = body(), color = Accent) }
             if (all.isNotEmpty()) TextButton(onClick = {
-                scope.launch { withContext(Dispatchers.IO) { repo.clear() }; onDataChanged() }
+                scope.launch {
+                    withContext(Dispatchers.IO) { repo.clear() }
+                    // Para que la próxima sincronización vuelva a traer la agenda de la nota.
+                    Settings(context).resetSyncSignatures()
+                    onDataChanged()
+                }
             }) { Text("Borrar todo", style = body(), color = Color.White.copy(alpha = 0.6f)) }
         }
         Hint("Claude te hará preguntas sobre tus horarios y te devolverá el JSON listo para pegar.")
@@ -228,7 +235,7 @@ private fun ActivityRow(a: Activity, onClick: () -> Unit) {
                 a.date != null -> "este día"
                 a.days.isEmpty() -> "diario"
                 else -> a.days.sorted().joinToString(" ") { DAY_LETTERS[it.value - 1] }
-            },
+            } + if (a.source == Source.VAULT) " · nota" else "",
             style = body().copy(fontSize = 12.sp), color = Color.White.copy(alpha = 0.45f),
         )
     }
@@ -309,6 +316,9 @@ private fun ActivityDialog(
                             ) { Text(DAY_LETTERS[i], fontSize = 13.sp, color = if (on) Color(0xFF1B1210) else Color.White) }
                         }
                     }
+                }
+                if (initial.source == Source.VAULT) {
+                    Hint("Viene de tu nota de Obsidian: los cambios hechos aquí se reemplazan en la próxima sincronización. Edítala en la nota.")
                 }
                 if (!isNew) TextButton(onClick = onDelete) { Text("Eliminar actividad", style = body(), color = Color(0xFFFF8A80)) }
             }
