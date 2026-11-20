@@ -7,7 +7,19 @@ App Android que muestra cada día un **fondo de pantalla** y una **frase motivad
 - **Modo estático solo para bloqueo**: genera la imagen (fondo + frase) y la fija con `WallpaperManager.FLAG_LOCK`; opcionalmente se regenera cada medianoche (WorkManager).
 - **Importar imágenes** desde la galería (se copian reescaladas al almacenamiento interno). Rotan una por día.
 - **Importar frases** desde archivo JSON o pegando desde el portapapeles; botón para copiar un prompt listo para Claude.
-- Estilos **Minimal** (centrado) y **Cristal** (tarjetas esmeriladas).
+- Estilos **Minimal** (centrado) y **Cristal** (tarjetas con desenfoque real).
+- **Agenda**: comidas, entrenamiento, estudios y planes. Rutinas semanales, diarias o de una fecha concreta, con calendario en la app; las de hoy se dibujan en el fondo (la siguiente resaltada, las pasadas atenuadas).
+
+## Formato JSON de agenda
+```json
+{
+  "activities": [
+    { "title": "Desayuno", "category": "comida", "time": "07:30", "days": ["lun","mar","mie","jue","vie"] },
+    { "title": "Examen de Cálculo", "category": "estudio", "time": "10:00", "date": "2026-11-25" }
+  ]
+}
+```
+`category`: comida | entrenamiento | estudio | plan | otro. Sin `days` ni `date` = todos los días.
 
 ## Formato JSON de frases
 ```json
@@ -33,6 +45,5 @@ Las frases con `date` se muestran exactamente ese día; el resto rota.
 
 ## Próximos pasos
 - Clima (Open-Meteo, sin API key).
-- Rutinas/actividades por día de la semana configurables.
 
 Fuente Jost bajo SIL Open Font License (`licenses/Jost-OFL.txt`).

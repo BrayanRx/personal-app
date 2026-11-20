@@ -103,7 +103,7 @@ class AuraWallpaperService : WallpaperService() {
                 content = DailySelector.forDate(this@AuraWallpaperService, today)
                 contentDate = today
             }
-            val opts = RenderOptions(settings.showClock, settings.use24h, settings.style)
+            val opts = RenderOptions(settings.showClock, settings.use24h, settings.style, settings.showAgenda)
             val holder = surfaceHolder
             var canvas: Canvas? = null
             try {
