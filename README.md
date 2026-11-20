@@ -46,4 +46,5 @@ Las frases con `date` se muestran exactamente ese día; el resto rota.
 ## Próximos pasos
 - Clima (Open-Meteo, sin API key).
 
-Fuente Jost bajo SIL Open Font License (`licenses/Jost-OFL.txt`).
+## Licencia
+Código bajo licencia [MIT](LICENSE). La fuente Jost se distribuye bajo SIL Open Font License 1.1 (`licenses/Jost-OFL.txt`).
