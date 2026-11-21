@@ -80,7 +80,9 @@ import pe.aura.wallpaper.data.QuoteRepository
 import pe.aura.wallpaper.data.Settings
 import pe.aura.wallpaper.data.Style
 import pe.aura.wallpaper.render.RenderOptions
+import pe.aura.wallpaper.BuildConfig
 import pe.aura.wallpaper.render.WallpaperRenderer
+import pe.aura.wallpaper.sleep.SleepAlarms
 import pe.aura.wallpaper.sync.VaultSync
 import pe.aura.wallpaper.wallpaper.AuraWallpaperService
 import pe.aura.wallpaper.work.LockScreen
@@ -107,8 +109,13 @@ class MainActivity : ComponentActivity() {
                     background = Color(0xFF0E0F12),
                     surface = Color(0xFF16171C),
                 ),
-            ) { AuraApp() }
+            ) { AuraApp(initialTab = intent.getIntExtra(EXTRA_TAB, 0)) }
         }
+    }
+
+    companion object {
+        /** Pestaña a abrir (0 Fondo, 1 Agenda, 2 Sueño); la usan las notificaciones. */
+        const val EXTRA_TAB = "tab"
     }
 
     override fun onResume() {
@@ -117,18 +124,19 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch(Dispatchers.IO) {
             val changed = VaultSync.sync(this@MainActivity)
             if (changed && Settings(this@MainActivity).lockAutoUpdate) runCatching { LockScreen.apply(this@MainActivity) }
+            runCatching { SleepAlarms.reschedule(this@MainActivity) }
         }
     }
 }
 
 @Composable
-private fun AuraApp() {
+private fun AuraApp(initialTab: Int) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val settings = remember { Settings(context) }
     var version by remember { mutableIntStateOf(0) }
     var syncVersion by remember { mutableIntStateOf(0) }
-    var tab by remember { mutableIntStateOf(0) }
+    var tab by remember { mutableIntStateOf(initialTab.coerceIn(0, 2)) }
 
     // Cualquier cambio guardado (desde la app, la sincronización o el fondo) refresca la UI.
     DisposableEffect(settings) {
@@ -157,23 +165,35 @@ private fun AuraApp() {
             .padding(horizontal = 20.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Text(
-            "A U R A",
-            style = TextStyle(fontFamily = Jost, fontWeight = FontWeight.Light, fontSize = 26.sp, letterSpacing = 6.sp),
-            color = Color.White,
-        )
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text(
+                "A U R A",
+                style = TextStyle(fontFamily = Jost, fontWeight = FontWeight.Light, fontSize = 26.sp, letterSpacing = 6.sp),
+                color = Color.White,
+            )
+            Spacer(Modifier.width(10.dp))
+            // Versión instalada a la vista, para saber si una actualización se aplicó.
+            Text(
+                "v${BuildConfig.VERSION_NAME}",
+                style = body().copy(fontSize = 13.sp),
+                color = Color.White.copy(alpha = 0.45f),
+                modifier = Modifier.padding(bottom = 5.dp),
+            )
+        }
         SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-            listOf("Fondo", "Agenda").forEachIndexed { i, label ->
+            listOf("Fondo", "Agenda", "Sueño").forEachIndexed { i, label ->
                 SegmentedButton(
                     selected = tab == i,
                     onClick = { tab = i },
-                    shape = SegmentedButtonDefaults.itemShape(i, 2),
+                    shape = SegmentedButtonDefaults.itemShape(i, 3),
                 ) { Text(label, style = body()) }
             }
         }
+        MissedSleepPrompt(settings, version)
         when (tab) {
             0 -> FondoScreen(settings, version, syncVersion, ::dataChanged)
-            else -> AgendaScreen(version, ::dataChanged)
+            1 -> AgendaScreen(version, ::dataChanged)
+            else -> SleepScreen(settings, version)
         }
         Spacer(Modifier.height(24.dp))
     }
@@ -186,7 +206,6 @@ private fun ColumnScope.FondoScreen(settings: Settings, version: Int, syncVersio
     val images = remember { ImageRepository(context) }
     val quotes = remember { QuoteRepository(context) }
     var preview by remember { mutableStateOf<Bitmap?>(null) }
-    var imageCount by remember { mutableIntStateOf(0) }
     var quoteCount by remember { mutableIntStateOf(0) }
     var customQuotes by remember { mutableStateOf(false) }
 
@@ -198,13 +217,12 @@ private fun ColumnScope.FondoScreen(settings: Settings, version: Int, syncVersio
 
     LaunchedEffect(version, showClock, use24h, style, showAgenda) {
         val bmp = withContext(Dispatchers.Default) {
-            imageCount = images.all().size
             quoteCount = quotes.all().size
             customQuotes = quotes.hasCustomQuotes()
             val (w, h) = LockScreen.screenSize(context)
             WallpaperRenderer(context).render(
                 w / 2, h / 2, DailySelector.forDate(context), LocalDateTime.now(),
-                RenderOptions(showClock, use24h, style, showAgenda),
+                RenderOptions(showClock, use24h, style, showAgenda, settings.showLastNight),
             )
         }
         preview = bmp
@@ -215,7 +233,7 @@ private fun ColumnScope.FondoScreen(settings: Settings, version: Int, syncVersio
     ) { uris ->
         if (uris.isEmpty()) return@rememberLauncherForActivityResult
         scope.launch {
-            val n = withContext(Dispatchers.IO) { images.import(uris) }
+            val n = withContext(Dispatchers.IO) { images.import(context, uris) }
             toast(context, "$n imágenes importadas")
             dataChanged()
         }
@@ -279,18 +297,12 @@ private fun ColumnScope.FondoScreen(settings: Settings, version: Int, syncVersio
 
         SyncSection(settings, syncVersion)
 
-        Section("Fondos · $imageCount") {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(
-                    onClick = { pickImages.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.1f), contentColor = Color.White),
-                ) { Text("Importar imágenes", style = body()) }
-                if (imageCount > 0) TextButton(onClick = {
-                    scope.launch { withContext(Dispatchers.IO) { images.clear() }; dataChanged() }
-                }) { Text("Borrar todo", style = body(), color = Accent) }
-            }
-            Hint("Rotan una por día en el orden en que las importaste.")
-        }
+        ImagesSection(
+            images = images,
+            version = version,
+            onAdd = { pickImages.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+            onChanged = dataChanged,
+        )
 
         Section("Frases · $quoteCount${if (customQuotes) "" else " (de ejemplo)"}") {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {

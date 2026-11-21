@@ -31,6 +31,27 @@ class Settings(context: Context) {
         get() = prefs.getBoolean(KEY_LOCK_AUTO, false)
         set(v) = prefs.edit().putBoolean(KEY_LOCK_AUTO, v).apply()
 
+    // ---------- Sueño ----------
+
+    /** Recordatorios de Desconectar / Dormir / Despertar (se activa desde la pestaña Sueño). */
+    var sleepEnabled: Boolean
+        get() = prefs.getBoolean(KEY_SLEEP_ENABLED, false)
+        set(v) = prefs.edit().putBoolean(KEY_SLEEP_ENABLED, v).apply()
+
+    var pauseMusic: Boolean
+        get() = prefs.getBoolean(KEY_PAUSE_MUSIC, true)
+        set(v) = prefs.edit().putBoolean(KEY_PAUSE_MUSIC, v).apply()
+
+    /** Línea "Anoche: 6 h 50" en la tarjeta de agenda del fondo. */
+    var showLastNight: Boolean
+        get() = prefs.getBoolean(KEY_SHOW_LAST_NIGHT, true)
+        set(v) = prefs.edit().putBoolean(KEY_SHOW_LAST_NIGHT, v).apply()
+
+    /** Última noche por la que ya se preguntó "¿A qué hora te dormiste?". */
+    var sleepAskedNight: String?
+        get() = prefs.getString(KEY_SLEEP_ASKED, null)
+        set(v) = prefs.edit().putString(KEY_SLEEP_ASKED, v).apply()
+
     // ---------- Sincronización con la bóveda de Obsidian ----------
 
     var syncTreeUri: String?
@@ -90,6 +111,11 @@ class Settings(context: Context) {
         const val KEY_SHOW_AGENDA = "show_agenda"
         const val KEY_LOCK_AUTO = "lock_auto"
         const val KEY_DATA_VERSION = "data_version"
+
+        const val KEY_SLEEP_ENABLED = "sleep_enabled"
+        const val KEY_PAUSE_MUSIC = "sleep_pause_music"
+        const val KEY_SHOW_LAST_NIGHT = "sleep_show_last_night"
+        const val KEY_SLEEP_ASKED = "sleep_asked_night"
 
         /** Todas las claves de sincronización empiezan así; el fondo animado las ignora. */
         const val SYNC_PREFIX = "sync_"

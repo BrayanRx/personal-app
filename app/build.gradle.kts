@@ -12,8 +12,8 @@ android {
         applicationId = "pe.aura.wallpaper"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "0.3.0"
+        versionCode = 5
+        versionName = "0.4.0"
     }
 
     // Firma de release: la clave vive en los secrets de GitHub, nunca en el repo.
@@ -54,6 +54,7 @@ android {
     buildFeatures {
         compose = true
         resValues = true
+        buildConfig = true
     }
 }
 

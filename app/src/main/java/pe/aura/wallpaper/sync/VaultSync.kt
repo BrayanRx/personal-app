@@ -7,6 +7,7 @@ import android.provider.DocumentsContract.Document
 import pe.aura.wallpaper.data.ActivityRepository
 import pe.aura.wallpaper.data.QuoteRepository
 import pe.aura.wallpaper.data.Settings
+import pe.aura.wallpaper.sleep.SleepAlarms
 
 /**
  * Lee la agenda y las frases desde la carpeta de Obsidian elegida por el usuario (SAF).
@@ -49,7 +50,11 @@ object VaultSync {
         settings.syncAgendaSig = outcome.agendaSig
         settings.syncQuotesSig = outcome.quotesSig
         settings.saveSyncStatus(now, outcome.activities, outcome.quotes, outcome.errors.joinToString("\n").ifEmpty { null })
-        if (outcome.changed) settings.bumpDataVersion()
+        if (outcome.changed) {
+            settings.bumpDataVersion()
+            // La agenda puede haber cambiado las horas de Desconectar/Dormir/Despertar.
+            runCatching { SleepAlarms.reschedule(context) }
+        }
         outcome.changed
     }
 

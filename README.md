@@ -9,10 +9,11 @@ App Android que muestra cada día un **fondo de pantalla** y una **frase motivad
 Android 8.0 o superior. Al abrir el APK, permite "Instalar apps desconocidas" para tu navegador.
 Las versiones están firmadas siempre con la misma clave, así que cada nueva se instala encima sin perder tus fotos, frases ni agenda.
 
-## MVP actual
+## Qué hace
 - **Fondo animado** (live wallpaper): hora en vivo, fecha, frase del día. Funciona en inicio y bloqueo (según el fabricante).
 - **Modo estático solo para bloqueo**: genera la imagen (fondo + frase) y la fija con `WallpaperManager.FLAG_LOCK`; opcionalmente se regenera cada medianoche (WorkManager).
-- **Importar imágenes** desde la galería (se copian reescaladas al almacenamiento interno). Rotan una por día.
+- **Fondos** importados desde la galería (copiados dentro de Aura), rotan uno por día; se pueden reordenar, eliminar o fijar para hoy.
+- **Sueño**: recordatorios para desconectar, dormir y despertar según tu agenda, registro de cada noche y gráfico semanal contra la meta de 7 h 45. Pausa la música al desconectar.
 - **Importar frases** desde archivo JSON o pegando desde el portapapeles; botón para copiar un prompt listo para Claude.
 - Estilos **Minimal** (centrado) y **Cristal** (tarjetas con desenfoque real).
 - **Agenda**: comidas, entrenamiento, estudios y planes. Rutinas semanales, diarias o de una fecha concreta, con calendario en la app; las de hoy se dibujan en el fondo (la siguiente resaltada, las pasadas atenuadas).
@@ -62,6 +63,31 @@ Cualquier texto antes o después del bloque se ignora.
 
 Se lee la nota `.md` y no un `.json` aparte porque Obsidian Sync siempre sincroniza notas, mientras que "otros tipos de archivo" requieren activarse.
 
+## Sueño
+
+Pestaña **Sueño**. Activa "Desconectar, dormir y despertar" (en Android 13+ pide permiso de notificaciones).
+
+- **Detección por título** en la agenda de cada día (sin distinguir mayúsculas ni tildes): actividades que empiezan con `Desconectar`, `Dormir` y `Despertar`. Si un día no tiene alguna, no se programa nada para ese evento.
+- **Recordatorios** (canal "Sueño"):
+  - a la hora de *Dormir*: "Hora de dormir. Meta: 7 h 45" con el botón **Me voy a dormir**;
+  - a la hora de *Despertar*: "Buenos días" con el botón **Desperté**.
+  - Los mismos botones están en la app. Si no registraste la hora de dormir, al abrir la app te pregunta "¿A qué hora te dormiste anoche?".
+- **Registro** en `sleep.json`: una entrada por noche (`night`, `sleep`, `wake`, `goalMin`). La noche lleva la fecha del día en que te acostaste; la madrugada (antes de las 12:00) cuenta como la noche anterior, y la duración cruza la medianoche. Cada noche se puede editar o borrar.
+- **Vista**: barras de los últimos 7 días con la meta (7 h 45), promedio y noches que cumplieron la meta. Opcional en el fondo: "ANOCHE 6 H 50" en la tarjeta de agenda.
+
+### Pausar la música al desconectar
+A la hora de *Desconectar*, Aura envía la tecla multimedia **Pausa** (`AudioManager.dispatchMediaKeyEvent`): funciona con Spotify y cualquier app de música, sin APIs de terceros. La notificación "Hora de desconectar" trae **5 min más**, que reanuda la música y la vuelve a pausar 5 minutos después (una sola vez). Se puede desactivar con "Pausar música al desconectar".
+
+### Alarmas
+Se usan alarmas inexactas (`setAndAllowWhileIdle`, ±unos minutos), así que no hace falta el permiso de alarmas exactas. Se reprograman al abrir la app, tras cada sincronización de la bóveda, tras cada aviso y al reiniciar el teléfono. Si el ahorro de batería las retrasa, la pestaña Sueño muestra un aviso con acceso directo a los ajustes de la app (Batería → Sin restricciones).
+
+## Fondos
+
+- Cuadrícula de miniaturas en el **orden de rotación**, con la de **hoy** marcada.
+- Toca una miniatura para **Usar hoy** (solo por hoy), **Mover antes / después** o **Eliminar** (con confirmación). **Agregar** suma imágenes al final; **Borrar todo** pide confirmación.
+- El orden se guarda en `images/order.json`.
+- **Las imágenes se copian (reescaladas) dentro de Aura**: puedes borrar las originales de tu galería y el fondo no cambia.
+
 ## Formato JSON de frases
 ```json
 {
@@ -91,8 +117,6 @@ La firma usa los secrets `AURA_KEYSTORE_BASE64`, `AURA_KEYSTORE_PASSWORD`, `AURA
 - Algunas capas (MIUI/HyperOS, ciertas One UI) no muestran fondos animados en el bloqueo: usar el modo estático.
 
 ## Próximos pasos
-- Registro de sueño ("Me voy a dormir" / "Desperté") con gráfico semanal.
-- Pausar la música a la hora de dormir.
 - Marcar actividades como hechas y racha semanal.
 - Clima (Open-Meteo, sin API key).
 
