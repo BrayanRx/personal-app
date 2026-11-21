@@ -21,6 +21,7 @@ import pe.aura.wallpaper.R
 import pe.aura.wallpaper.data.Activity
 import pe.aura.wallpaper.data.DailyContent
 import pe.aura.wallpaper.data.Style
+import pe.aura.wallpaper.sleep.SleepLogic
 import java.io.File
 import java.time.LocalDateTime
 import java.time.LocalTime
@@ -34,6 +35,7 @@ data class RenderOptions(
     val use24h: Boolean = true,
     val style: Style = Style.MINIMAL,
     val showAgenda: Boolean = true,
+    val showLastNight: Boolean = true,
 )
 
 /**
@@ -91,7 +93,8 @@ class WallpaperRenderer(private val context: Context) {
 
         if (opts.showAgenda && content.activities.isNotEmpty()) {
             val gap = w * if (glass) 0.03f else 0.07f
-            drawAgenda(canvas, w, top + w * 0.04f, quoteTop - gap, content.activities, now, glass)
+            val lastNight = content.lastNightMin?.takeIf { opts.showLastNight }
+            drawAgenda(canvas, w, top + w * 0.04f, quoteTop - gap, content.activities, now, glass, lastNight)
         }
     }
 
@@ -175,7 +178,7 @@ class WallpaperRenderer(private val context: Context) {
      */
     private fun drawAgenda(
         c: Canvas, w: Int, top: Float, bottom: Float,
-        items: List<Activity>, now: LocalDateTime, glass: Boolean,
+        items: List<Activity>, now: LocalDateTime, glass: Boolean, lastNightMin: Int?,
     ) {
         val p = w * PAD
         val rowH = w * 0.068f
@@ -210,9 +213,13 @@ class WallpaperRenderer(private val context: Context) {
         val headerText = "HOY · " + now.format(DateTimeFormatter.ofPattern("EEEE d", ES)).uppercase(ES)
         var y = box.top + padV + header.textSize
         c.drawText(headerText, left, y, header)
-        if (hidden > 0) {
-            val more = "+$hidden"
-            c.drawText(more, right - header.measureText(more), y, header)
+        // A la derecha: "ANOCHE 6 H 50" y/o "+N" si no caben todas.
+        val rightText = listOfNotNull(
+            lastNightMin?.let { "ANOCHE " + SleepLogic.format(it).uppercase(ES) },
+            if (hidden > 0) "+$hidden" else null,
+        ).joinToString("  ·  ")
+        if (rightText.isNotEmpty()) {
+            c.drawText(rightText, right - header.measureText(rightText) + header.letterSpacing * header.textSize, y, header)
         }
         y = box.top + padV + headerH
 

@@ -7,38 +7,68 @@ import android.graphics.ImageDecoder
 import android.net.Uri
 import android.os.Build
 import java.io.File
+import java.time.LocalDate
 import kotlin.math.max
 
 /**
- * Copia las imágenes elegidas al almacenamiento interno de la app (reescaladas),
- * así no dependemos de permisos persistentes sobre la galería.
+ * Copia las imágenes elegidas al almacenamiento interno de la app (reescaladas): borrar la
+ * foto original de la galería no la quita del fondo. El orden de rotación vive en
+ * images/order.json (ver [ImageOrder]), independiente del nombre de los archivos.
  */
-class ImageRepository(private val context: Context) {
+class ImageRepository(private val baseDir: File) {
 
-    private val dir get() = File(context.filesDir, "images").apply { mkdirs() }
+    constructor(context: Context) : this(context.filesDir)
 
-    fun all(): List<File> =
-        dir.listFiles { f -> f.extension == "jpg" }?.sortedBy { it.name } ?: emptyList()
+    private val dir get() = File(baseDir, "images").apply { mkdirs() }
+    private val orderFile get() = File(dir, "order.json")
 
-    fun import(uris: List<Uri>): Int {
-        var count = 0
+    private fun files(): List<File> = dir.listFiles { f -> f.extension == "jpg" }?.toList() ?: emptyList()
+
+    /** Orden actual, conciliado con los archivos que realmente existen. */
+    fun order(): ImageOrder {
+        val stored = if (orderFile.exists()) runCatching { ImageOrder.parse(orderFile.readText()) }.getOrNull() else null
+        return (stored ?: ImageOrder()).reconcile(files().map { it.name })
+    }
+
+    /** Imágenes en orden de rotación. */
+    fun all(): List<File> = order().order.map { File(dir, it) }
+
+    fun forDate(date: LocalDate): File? = order().pick(date)?.let { File(dir, it) }
+
+    /** Agrega al final, sin tocar las existentes. Devuelve cuántas se importaron. */
+    fun import(context: Context, uris: List<Uri>): Int {
+        val added = mutableListOf<String>()
         uris.forEachIndexed { i, uri ->
             runCatching {
-                val bmp = decodeScaled(uri, MAX_SIDE)
+                val bmp = decodeScaled(context, uri, MAX_SIDE)
                 val out = File(dir, "${System.currentTimeMillis()}_$i.jpg")
                 out.outputStream().use { bmp.compress(Bitmap.CompressFormat.JPEG, 92, it) }
                 bmp.recycle()
-                count++
+                added += out.name
             }
         }
-        return count
+        save(order().add(added))
+        return added.size
     }
+
+    fun delete(name: String) {
+        File(dir, name).delete()
+        save(order().remove(name))
+    }
+
+    fun move(name: String, delta: Int) = save(order().move(name, delta))
+
+    fun pinToday(name: String, today: LocalDate = LocalDate.now()) = save(order().pin(name, today))
 
     fun clear() {
         dir.listFiles()?.forEach { it.delete() }
     }
 
-    private fun decodeScaled(uri: Uri, maxSide: Int): Bitmap {
+    private fun save(order: ImageOrder) {
+        orderFile.writeText(order.toJson())
+    }
+
+    private fun decodeScaled(context: Context, uri: Uri, maxSide: Int): Bitmap {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             // ImageDecoder respeta la orientación EXIF.
             val src = ImageDecoder.createSource(context.contentResolver, uri)
@@ -61,5 +91,14 @@ class ImageRepository(private val context: Context) {
 
     companion object {
         private const val MAX_SIDE = 2800
+
+        /** Miniatura pequeña para la cuadrícula de la app. */
+        fun thumbnail(file: File, targetPx: Int): Bitmap? = runCatching {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(file.path, bounds)
+            var sample = 1
+            while (bounds.outWidth / (sample * 2) >= targetPx) sample *= 2
+            BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply { inSampleSize = sample })
+        }.getOrNull()
     }
 }

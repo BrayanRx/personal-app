@@ -35,7 +35,7 @@ object LockScreen {
         val settings = Settings(context)
         val bmp = WallpaperRenderer(context).render(
             w, h, DailySelector.forDate(context), LocalDateTime.now(),
-            RenderOptions(showClock = false, use24h = settings.use24h, style = settings.style, showAgenda = settings.showAgenda),
+            RenderOptions(showClock = false, use24h = settings.use24h, style = settings.style, showAgenda = settings.showAgenda, showLastNight = settings.showLastNight),
         )
         WallpaperManager.getInstance(context).setBitmap(bmp, null, true, WallpaperManager.FLAG_LOCK)
         bmp.recycle()
