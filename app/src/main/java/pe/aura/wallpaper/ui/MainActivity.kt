@@ -370,7 +370,7 @@ internal fun Section(title: String, content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun ToggleRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+internal fun ToggleRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(label, style = body(), color = Color.White, modifier = Modifier.weight(1f))
         Spacer(Modifier.width(8.dp))
