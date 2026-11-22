@@ -52,13 +52,35 @@ data class Activity(
     val days: Set<DayOfWeek> = emptySet(),
     val date: LocalDate? = null,
     val source: Source = Source.MANUAL,
+    /** Fechas en las que esta actividad recurrente NO aplica (viajes, feriados…). */
+    val skip: Set<LocalDate> = emptySet(),
 ) {
     fun occursOn(d: LocalDate): Boolean = when {
         date != null -> date == d
+        d in skip -> false
         days.isEmpty() -> true
         else -> d.dayOfWeek in days
     }
 }
+
+/**
+ * La agenda completa: actividades + días con agenda propia.
+ * En un día de [customDays] solo cuentan las actividades con `date` igual a ese día;
+ * las recurrentes y diarias se ocultan. Las de la nota y las de la app se guardan aparte
+ * para que la sincronización reemplace solo las suyas.
+ */
+data class Agenda(
+    val activities: List<Activity> = emptyList(),
+    val manualCustomDays: Set<LocalDate> = emptySet(),
+    val vaultCustomDays: Set<LocalDate> = emptySet(),
+) {
+    val customDays: Set<LocalDate> get() = manualCustomDays + vaultCustomDays
+
+    fun forDate(date: LocalDate): List<Activity> = ActivityRepository.forDate(activities, date, customDays)
+}
+
+/** Resultado de leer un JSON de agenda: actividades y el campo opcional "customDays". */
+data class ParsedAgenda(val activities: List<Activity>, val customDays: Set<LocalDate>)
 
 /**
  * Guarda la agenda en `<dir>/activities.json`.
@@ -70,19 +92,27 @@ class ActivityRepository(private val dir: File) {
 
     private val file get() = File(dir, "activities.json")
 
-    fun all(): List<Activity> =
-        if (file.exists()) runCatching { parse(file.readText()) }.getOrDefault(emptyList()) else emptyList()
+    fun agenda(): Agenda =
+        if (file.exists()) runCatching { readStored(file.readText()) }.getOrDefault(Agenda()) else Agenda()
 
-    fun forDate(date: LocalDate): List<Activity> = forDate(all(), date)
+    fun all(): List<Activity> = agenda().activities
+
+    fun forDate(date: LocalDate): List<Activity> = agenda().forDate(date)
 
     fun upsert(activity: Activity) {
-        val list = all().toMutableList()
+        val a = agenda()
+        val list = a.activities.toMutableList()
         val i = list.indexOfFirst { it.id == activity.id }
         if (i >= 0) list[i] = activity else list += activity
-        save(list)
+        save(a.copy(activities = list))
     }
 
-    fun delete(id: String) = save(all().filterNot { it.id == id })
+    fun delete(id: String) = agenda().let { save(it.copy(activities = it.activities.filterNot { a -> a.id == id })) }
+
+    /** "Solo agenda propia este día" desde la app (solo afecta a los días manuales). */
+    fun setManualCustomDay(date: LocalDate, on: Boolean) = agenda().let {
+        save(it.copy(manualCustomDays = if (on) it.manualCustomDays + date else it.manualCustomDays - date))
+    }
 
     fun clear() {
         file.delete()
@@ -94,11 +124,12 @@ class ActivityRepository(private val dir: File) {
      * Lanza excepción (sin tocar el archivo) si el JSON es inválido o está vacío.
      */
     fun import(json: String): Int {
-        val incoming = parse(json).map { it.copy(source = Source.MANUAL) }
+        val parsed = parseAgenda(json)
+        val incoming = parsed.activities.map { it.copy(source = Source.MANUAL) }
         require(incoming.isNotEmpty()) { "El JSON no contiene actividades" }
-        val existing = all()
-        val known = existing.map { it.id }.toSet()
-        save(mergeById(existing, incoming))
+        val a = agenda()
+        val known = a.activities.map { it.id }.toSet()
+        save(a.copy(activities = mergeById(a.activities, incoming), manualCustomDays = a.manualCustomDays + parsed.customDays))
         return incoming.map { it.id }.distinct().count { it !in known }
     }
 
@@ -107,24 +138,30 @@ class ActivityRepository(private val dir: File) {
      * Lanza excepción (sin tocar el archivo) si el JSON es inválido. Devuelve cuántas se leyeron.
      */
     fun replaceVault(json: String): Int {
-        val vault = parse(json).map { it.copy(source = Source.VAULT) }.distinctBy { it.id }
-        save(replaceVault(all(), vault))
+        val parsed = parseAgenda(json)
+        val vault = parsed.activities.map { it.copy(source = Source.VAULT) }.distinctBy { it.id }
+        val a = agenda()
+        save(a.copy(activities = replaceVault(a.activities, vault), vaultCustomDays = parsed.customDays))
         return vault.size
     }
 
-    private fun save(list: List<Activity>) {
+    private fun save(agenda: Agenda) {
         dir.mkdirs()
         // Escritura atómica: un fallo a mitad no deja el archivo corrupto.
         val tmp = File(dir, "activities.json.tmp")
-        tmp.writeText(toJson(list))
+        tmp.writeText(toJson(agenda.activities, agenda.manualCustomDays, agenda.vaultCustomDays))
         if (!tmp.renameTo(file)) {
             file.writeText(tmp.readText()); tmp.delete()
         }
     }
 
     companion object {
-        fun forDate(all: List<Activity>, date: LocalDate): List<Activity> =
-            all.filter { it.occursOn(date) }
+        /**
+         * Actividades de un día. Si [date] está en [customDays], solo las que tienen esa `date`;
+         * si no, todas las que ocurren ese día (respetando "skip").
+         */
+        fun forDate(all: List<Activity>, date: LocalDate, customDays: Set<LocalDate> = emptySet()): List<Activity> =
+            all.filter { if (date in customDays) it.date == date else it.occursOn(date) }
                 .sortedWith(compareBy<Activity, LocalTime?>(nullsFirst<LocalTime>()) { it.time }.thenBy { it.title })
 
         /** Las entrantes sustituyen a las existentes con el mismo ID; el resto se añade al final. */
@@ -153,7 +190,11 @@ class ActivityRepository(private val dir: File) {
             return "a-" + digest.take(8).joinToString("") { "%02x".format(it) }
         }
 
-        fun toJson(list: List<Activity>): String {
+        fun toJson(
+            list: List<Activity>,
+            manualCustomDays: Set<LocalDate> = emptySet(),
+            vaultCustomDays: Set<LocalDate> = emptySet(),
+        ): String {
             val arr = JSONArray()
             list.forEach { a ->
                 arr.put(JSONObject().apply {
@@ -164,9 +205,37 @@ class ActivityRepository(private val dir: File) {
                     if (a.days.isNotEmpty()) put("days", JSONArray(a.days.sorted().map { DAY_CODES[it.value - 1] }))
                     a.date?.let { put("date", it.toString()) }
                     put("source", a.source.name.lowercase())
+                    if (a.skip.isNotEmpty()) put("skip", JSONArray(a.skip.sorted().map { it.toString() }))
                 })
             }
-            return JSONObject().put("version", 1).put("activities", arr).toString(2)
+            return JSONObject().put("version", 1).put("activities", arr).apply {
+                if (manualCustomDays.isNotEmpty()) put("customDays", JSONArray(manualCustomDays.sorted().map { it.toString() }))
+                if (vaultCustomDays.isNotEmpty()) put("vaultCustomDays", JSONArray(vaultCustomDays.sorted().map { it.toString() }))
+            }.toString(2)
+        }
+
+        /** Lee el archivo guardado (incluye los días propios de la nota por separado). */
+        private fun readStored(raw: String): Agenda {
+            val parsed = parseAgenda(raw)
+            val root = runCatching { JSONObject(raw.trim()) }.getOrNull()
+            return Agenda(parsed.activities, parsed.customDays, parseDates(root?.opt("vaultCustomDays")))
+        }
+
+        /** Como [parse], pero también devuelve "customDays" (alias "diasPropios") de la raíz. */
+        fun parseAgenda(raw: String): ParsedAgenda {
+            val cleaned = NoteJson.extract(raw).trim()
+            val root = if (cleaned.startsWith("{")) JSONObject(cleaned) else null
+            val custom = parseDates(root?.opt("customDays") ?: root?.opt("diasPropios"))
+            return ParsedAgenda(parse(raw), custom)
+        }
+
+        private fun parseDates(v: Any?): Set<LocalDate> {
+            val tokens = when (v) {
+                is JSONArray -> (0 until v.length()).map { v.get(it).toString() }
+                is String -> v.split(',', ' ', ';').filter { it.isNotBlank() }
+                else -> emptyList()
+            }
+            return tokens.mapNotNull { runCatching { LocalDate.parse(it.trim()) }.getOrNull() }.toSet()
         }
 
         /**
@@ -201,6 +270,7 @@ class ActivityRepository(private val dir: File) {
                     days = days,
                     date = date,
                     source = Source.parse(o.str("source")),
+                    skip = parseDates(o.opt("skip") ?: o.opt("omitir")),
                 )
             }
         }

@@ -1,6 +1,7 @@
 package pe.aura.wallpaper.sleep
 
 import pe.aura.wallpaper.data.Activity
+import pe.aura.wallpaper.data.ActivityRepository
 import java.text.Normalizer
 import java.time.Duration
 import java.time.LocalDate
@@ -29,16 +30,24 @@ object SleepLogic {
     }
 
     /** Horas del evento en un día concreto (puede haber varias, p. ej. domingo 00:15 y 23:15). */
-    fun timesOn(activities: List<Activity>, date: LocalDate, event: SleepEvent): List<LocalTime> =
-        activities.filter { it.time != null && it.occursOn(date) && eventOf(it.title) == event }
+    fun timesOn(
+        activities: List<Activity>, date: LocalDate, event: SleepEvent, customDays: Set<LocalDate> = emptySet(),
+    ): List<LocalTime> =
+        ActivityRepository.forDate(activities, date, customDays)
+            .filter { it.time != null && eventOf(it.title) == event }
             .mapNotNull { it.time }
             .sorted()
 
-    /** Próxima ocurrencia estrictamente posterior a [from] (busca hasta 8 días). */
-    fun next(activities: List<Activity>, from: LocalDateTime, event: SleepEvent): LocalDateTime? =
+    /**
+     * Próxima ocurrencia estrictamente posterior a [from] (busca hasta 8 días).
+     * En un día con agenda propia solo cuentan los eventos con fecha de ese día.
+     */
+    fun next(
+        activities: List<Activity>, from: LocalDateTime, event: SleepEvent, customDays: Set<LocalDate> = emptySet(),
+    ): LocalDateTime? =
         (0L..8L).asSequence()
             .map { from.toLocalDate().plusDays(it) }
-            .flatMap { d -> timesOn(activities, d, event).map { d.atTime(it) } }
+            .flatMap { d -> timesOn(activities, d, event, customDays).map { d.atTime(it) } }
             .firstOrNull { it.isAfter(from) }
 
     /**

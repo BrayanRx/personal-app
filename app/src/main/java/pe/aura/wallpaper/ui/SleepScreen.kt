@@ -79,9 +79,9 @@ fun SleepScreen(settings: Settings, version: Int) {
     val week = remember(version, refresh) { repo.week(today) }
     // Se recalcula al volver a la app (version cambia con cada sincronización).
     val next = remember(version, refresh, enabled) {
-        val acts = ActivityRepository(context).all()
+        val agenda = ActivityRepository(context).agenda()
         val now = LocalDateTime.now()
-        SleepEvent.values().associateWith { SleepLogic.next(acts, now, it) }
+        SleepEvent.values().associateWith { SleepLogic.next(agenda.activities, now, it, agenda.customDays) }
     }
     val canNotify = remember(refresh, enabled) { SleepNotifier.canNotify(context) }
     val batteryRestricted = remember(refresh, enabled) {
@@ -358,8 +358,8 @@ fun MissedSleepPrompt(settings: Settings, version: Int) {
             if (settings.sleepAskedNight == night.toString()) return@withContext null
             if (SleepRepository(context).forNight(night)?.sleep != null) return@withContext null
             // ¿Había "Dormir" esa noche? (de las 12:00 de ese día a las 12:00 del siguiente)
-            val acts = ActivityRepository(context).all()
-            val hadDormir = SleepLogic.next(acts, night.atTime(12, 0), SleepEvent.DORMIR)
+            val agenda = ActivityRepository(context).agenda()
+            val hadDormir = SleepLogic.next(agenda.activities, night.atTime(12, 0), SleepEvent.DORMIR, agenda.customDays)
                 ?.isBefore(night.plusDays(1).atTime(12, 0)) == true
             night.takeIf { hadDormir && now.isAfter(night.plusDays(1).atTime(4, 0)) }
         }
