@@ -28,6 +28,25 @@ Las versiones están firmadas siempre con la misma clave, así que cada nueva se
 }
 ```
 `category`: comida | entrenamiento | estudio | plan | otro. Sin `days` ni `date` = todos los días.
+### Días con agenda propia
+Para días en que la rutina semanal no aplica (torneos, viajes, feriados):
+
+```json
+{
+  "version": 1,
+  "customDays": ["2026-11-22"],
+  "activities": [
+    { "title": "Torneo de Tetris", "category": "plan", "time": "12:00", "date": "2026-11-22" },
+    { "title": "Gimnasio", "category": "entrenamiento", "time": "18:00", "days": ["lun","mie"], "skip": ["2026-11-25"] }
+  ]
+}
+```
+
+- **`customDays`** (raíz, opcional): en esas fechas solo se muestran las actividades con `date` igual a ese día; las recurrentes y diarias se ocultan. Sueño tampoco programa Dormir ni Despertar ese día, salvo que tenga los suyos con fecha.
+- **`skip`** (por actividad, opcional): oculta esa actividad recurrente solo en las fechas indicadas.
+- En la app: **mantén presionado un día** del calendario → "Solo agenda propia este día". Los días marcados desde la nota se gestionan en la nota; los de la app, en la app.
+- Los planes con fecha de hace más de 30 días se ocultan del calendario (no se borran).
+
 Cada actividad recibe un ID estable (hash de título, hora, días y fecha), así que importar o sincronizar dos veces lo mismo no duplica nada.
 
 ## Sincronización con Obsidian

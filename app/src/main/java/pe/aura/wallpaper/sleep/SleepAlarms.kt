@@ -24,10 +24,10 @@ object SleepAlarms {
         SleepEvent.values().forEach { am.cancel(eventIntent(context, it)) }
         if (!Settings(context).sleepEnabled) return emptyMap()
 
-        val activities = ActivityRepository(context).all()
+        val agenda = ActivityRepository(context).agenda()
         val scheduled = mutableMapOf<SleepEvent, LocalDateTime>()
         SleepEvent.values().forEach { e ->
-            val at = SleepLogic.next(activities, now, e) ?: return@forEach
+            val at = SleepLogic.next(agenda.activities, now, e, agenda.customDays) ?: return@forEach
             am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, millis(at), eventIntent(context, e))
             scheduled[e] = at
         }

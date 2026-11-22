@@ -7,7 +7,9 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -65,6 +67,9 @@ import java.time.format.DateTimeFormatter
 
 private val DAY_LETTERS = listOf("L", "M", "X", "J", "V", "S", "D")
 
+/** Los planes con fecha más antiguos que esto se ocultan del calendario (no se borran). */
+private const val HIDE_AFTER_DAYS = 30L
+
 @Composable
 fun AgendaScreen(version: Int, onDataChanged: () -> Unit) {
     val context = LocalContext.current
@@ -72,10 +77,14 @@ fun AgendaScreen(version: Int, onDataChanged: () -> Unit) {
     val repo = remember { ActivityRepository(context) }
 
     // version fuerza la relectura tras cualquier cambio
-    val all = remember(version) { repo.all() }
+    val agenda = remember(version) { repo.agenda() }
+    // Limpieza visual: los planes con fecha de hace más de 30 días no se muestran (no se borran).
+    val cutoff = LocalDate.now().minusDays(HIDE_AFTER_DAYS)
+    val all = remember(agenda) { agenda.activities.filter { it.date == null || !it.date.isBefore(cutoff) } }
     var month by remember { mutableStateOf(YearMonth.now()) }
     var selected by remember { mutableStateOf(LocalDate.now()) }
     var editing by remember { mutableStateOf<Activity?>(null) }
+    var customDayFor by remember { mutableStateOf<LocalDate?>(null) }
 
     fun importJson(text: String) {
         scope.launch {
@@ -97,13 +106,19 @@ fun AgendaScreen(version: Int, onDataChanged: () -> Unit) {
             month = month,
             selected = selected,
             datedPlans = all.mapNotNull { it.date }.toSet(),
+            customDays = agenda.customDays,
             onMonth = { month = it },
             onSelect = { selected = it },
+            onLongPress = { customDayFor = it },
         )
+        Hint("Mantén presionado un día para que use solo su agenda propia (torneos, viajes, feriados).")
     }
 
-    val dayItems = ActivityRepository.forDate(all, selected)
-    Section(selected.format(DateTimeFormatter.ofPattern("EEEE d 'de' MMMM", ES)).replaceFirstChar { it.titlecase(ES) }) {
+    val isCustom = selected in agenda.customDays
+    val dayItems = ActivityRepository.forDate(all, selected, agenda.customDays)
+    val dayTitle = selected.format(DateTimeFormatter.ofPattern("EEEE d 'de' MMMM", ES)).replaceFirstChar { it.titlecase(ES) }
+    Section(dayTitle + if (isCustom) " · agenda propia" else "") {
+        if (isCustom) Hint("Este día no muestra la rutina semanal, solo lo que tiene fecha de hoy.")
         if (dayItems.isEmpty()) Hint("Nada programado. Día libre.")
         dayItems.forEach { a -> ActivityRow(a) { editing = a } }
         Button(
@@ -146,6 +161,38 @@ fun AgendaScreen(version: Int, onDataChanged: () -> Unit) {
         Hint("Claude te hará preguntas sobre tus horarios y te devolverá el JSON listo para pegar.")
     }
 
+    customDayFor?.let { date ->
+        val fromVault = date in agenda.vaultCustomDays
+        val manualOn = date in agenda.manualCustomDays
+        AlertDialog(
+            onDismissRequest = { customDayFor = null },
+            containerColor = Color(0xFF1D1F26),
+            title = {
+                Text(
+                    date.format(DateTimeFormatter.ofPattern("EEEE d 'de' MMMM", ES)).replaceFirstChar { it.titlecase(ES) },
+                    style = body().copy(fontSize = 20.sp), color = Color.White,
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (fromVault) {
+                        Hint("Tu nota de Obsidian marca este día como agenda propia. Para quitarlo, edita «customDays» en la nota.")
+                    } else {
+                        ToggleRow("Solo agenda propia este día", manualOn) { on ->
+                            scope.launch {
+                                withContext(Dispatchers.IO) { repo.setManualCustomDay(date, on) }
+                                onDataChanged()
+                            }
+                            customDayFor = null
+                        }
+                        Hint("Oculta la rutina semanal y las actividades diarias; quedan solo las que tienen fecha de ese día.")
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { customDayFor = null }) { Text("Cerrar", color = Accent) } },
+        )
+    }
+
     editing?.let { current ->
         ActivityDialog(
             initial = current,
@@ -163,13 +210,16 @@ fun AgendaScreen(version: Int, onDataChanged: () -> Unit) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MonthCalendar(
     month: YearMonth,
     selected: LocalDate,
     datedPlans: Set<LocalDate>,
+    customDays: Set<LocalDate>,
     onMonth: (YearMonth) -> Unit,
     onSelect: (LocalDate) -> Unit,
+    onLongPress: (LocalDate) -> Unit,
 ) {
     val today = LocalDate.now()
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -203,11 +253,21 @@ private fun MonthCalendar(
                                 .clip(CircleShape)
                                 .background(if (isSel) Accent else Color.Transparent)
                                 .then(if (date == today && !isSel) Modifier.border(1.dp, Accent, CircleShape) else Modifier)
-                                .clickable { onSelect(date) },
+                                // Día con agenda propia: aro fino claro y número en color de acento.
+                                .then(
+                                    if (date in customDays && !isSel && date != today) {
+                                        Modifier.border(1.dp, Color.White.copy(alpha = 0.55f), CircleShape)
+                                    } else Modifier,
+                                )
+                                .combinedClickable(onClick = { onSelect(date) }, onLongClick = { onLongPress(date) }),
                             contentAlignment = Alignment.Center,
                         ) {
                             Text("$dayNum", style = body().copy(fontSize = 14.sp),
-                                color = if (isSel) Color(0xFF1B1210) else Color.White)
+                                color = when {
+                                    isSel -> Color(0xFF1B1210)
+                                    date in customDays -> Accent
+                                    else -> Color.White
+                                })
                             if (date in datedPlans) Box(
                                 Modifier.align(Alignment.BottomCenter).padding(bottom = 4.dp).size(4.dp)
                                     .clip(CircleShape).background(if (isSel) Color(0xFF1B1210) else Accent),
@@ -235,7 +295,7 @@ private fun ActivityRow(a: Activity, onClick: () -> Unit) {
                 a.date != null -> "este día"
                 a.days.isEmpty() -> "diario"
                 else -> a.days.sorted().joinToString(" ") { DAY_LETTERS[it.value - 1] }
-            } + if (a.source == Source.VAULT) " · nota" else "",
+            } + (if (a.skip.isNotEmpty()) " · con excepciones" else "") + if (a.source == Source.VAULT) " · nota" else "",
             style = body().copy(fontSize = 12.sp), color = Color.White.copy(alpha = 0.45f),
         )
     }
